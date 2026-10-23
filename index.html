@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>수입신고필증 추출기</title>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<style>
+  :root{
+    --ink:#1c1f26; --paper:#ffffff; --canvas:#f3f4f6; --line:#e2e5ea;
+    --accent:#2d4ea6; --accent-ink:#ffffff; --muted:#6b7280; --ok:#1a7f4b; --err:#c0392b; --warn:#b8860b;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --ink:#e8e9ec; --paper:#1b1e24; --canvas:#111318; --line:#2b2f38; --accent:#5f86e0; --accent-ink:#0b1020; --muted:#9aa1ad; --ok:#3ddc84; --err:#ff6b6b; --warn:#e0b23d; }
+  }
+  :root[data-theme="dark"]{ --ink:#e8e9ec; --paper:#1b1e24; --canvas:#111318; --line:#2b2f38; --accent:#5f86e0; --accent-ink:#0b1020; --muted:#9aa1ad; --ok:#3ddc84; --err:#ff6b6b; --warn:#e0b23d; }
+  :root[data-theme="light"]{ --ink:#1c1f26; --paper:#ffffff; --canvas:#f3f4f6; --line:#e2e5ea; --accent:#2d4ea6; --accent-ink:#ffffff; --muted:#6b7280; --ok:#1a7f4b; --err:#c0392b; --warn:#b8860b; }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--canvas);color:var(--ink);font-family:'Segoe UI',-apple-system,Malgun Gothic,sans-serif;}
+  #app{max-width:860px;margin:0 auto;padding:36px 20px 80px;}
+  h1{font-size:20px;margin:0 0 4px;letter-spacing:-.01em;}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 24px;line-height:1.6;}
+  #dropzone{border:2px dashed var(--line);border-radius:10px;padding:36px 20px;text-align:center;color:var(--muted);cursor:pointer;background:var(--paper);transition:border-color .15s,background .15s;}
+  #dropzone.drag{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 8%, var(--paper));}
+  #dropzone .big{font-size:14px;color:var(--ink);font-weight:600;margin-bottom:4px;}
+  #summary{margin-top:18px;display:none;gap:10px;font-size:12.5px;color:var(--muted);}
+  #summary b{color:var(--ink);}
+  #toolbar{margin-top:14px;display:none;gap:14px;align-items:center;font-size:12px;color:var(--muted);}
+  #toolbar a{color:var(--accent);text-decoration:none;cursor:pointer;}
+  #toolbar a:hover{text-decoration:underline;}
+  #groups{margin-top:14px;display:flex;flex-direction:column;gap:10px;}
+  .fgroup{background:var(--paper);border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+  .fghead{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;user-select:none;}
+  .fghead .chev{flex-shrink:0;font-size:11px;color:var(--muted);transition:transform .15s;width:10px;}
+  .fghead.open .chev{transform:rotate(90deg);}
+  .fghead .gcheck{flex-shrink:0;width:15px;height:15px;cursor:pointer;}
+  .fghead .gname{flex:1;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .fghead .gcount{flex-shrink:0;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .pagesWrap{display:none;border-top:1px solid var(--line);padding:10px 12px;flex-wrap:wrap;gap:10px;}
+  .pagesWrap.open{display:flex;}
+  .prow{width:110px;display:flex;flex-direction:column;align-items:center;gap:5px;background:var(--canvas);border:1px solid var(--line);border-radius:8px;padding:8px;}
+  .prow.checked{border-color:var(--accent);}
+  .prow img{width:100%;border:1px solid var(--line);border-radius:3px;background:#fff;display:block;}
+  .prow .pmeta{display:flex;align-items:center;gap:6px;font-size:10.5px;}
+  .prow .pnum{color:var(--muted);font-variant-numeric:tabular-nums;}
+  .badge{font-size:10.5px;font-weight:700;flex-shrink:0;padding:2px 7px;border-radius:20px;white-space:nowrap;}
+  .badge.cert{color:var(--ok);background:color-mix(in srgb, var(--ok) 14%, transparent);}
+  .badge.other{color:var(--muted);background:color-mix(in srgb, var(--muted) 14%, transparent);}
+  .badge.unknown{color:var(--warn);background:color-mix(in srgb, var(--warn) 16%, transparent);}
+  .badge.pending{color:var(--muted);background:transparent;}
+  #actions{margin-top:20px;display:flex;gap:10px;align-items:center;}
+  button{font-family:inherit;font-size:13.5px;font-weight:600;border:none;border-radius:8px;padding:11px 20px;cursor:pointer;}
+  #mergeBtn{background:var(--accent);color:var(--accent-ink);}
+  #mergeBtn:disabled{opacity:.4;cursor:not-allowed;}
+  #progressWrap{margin-top:16px;display:none;}
+  #progressBar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;}
+  #progressFill{height:100%;background:var(--accent);width:0%;transition:width .2s;}
+  #progressLabel{margin-top:6px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  input[type=file]{display:none;}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>수입신고필증 추출기</h1>
+  <p class="sub">PDF를 업로드하면 <b>페이지 단위</b>로 내용을 검사해 "수입신고필증" 표제가 있는 페이지만 자동으로 찾아냅니다.<br>
+  파일 하나에 여러 서류(인보이스·패킹리스트 등)가 섞여 있어도 해당 페이지만 골라 체크되며, 각 파일을 펼쳐 썸네일로 직접 확인·조정한 뒤 하나의 PDF로 합쳐 다운로드할 수 있습니다.</p>
+
+  <div id="dropzone">
+    <div class="big">📄 여기에 PDF를 끌어놓거나 클릭해서 선택하세요</div>
+    <div>여러 파일 한번에 선택 가능</div>
+    <input id="fileInput" type="file" accept="application/pdf" multiple>
+  </div>
+
+  <div id="summary"></div>
+  <div id="toolbar">
+    <a id="checkCert">감지된 페이지만 선택</a>
+    <a id="checkAll">전체 선택</a>
+    <a id="checkNone">전체 해제</a>
+  </div>
+
+  <div id="groups"></div>
+
+  <div id="progressWrap">
+    <div id="progressBar"><div id="progressFill"></div></div>
+    <div id="progressLabel"></div>
+  </div>
+
+  <div id="actions">
+    <button id="mergeBtn" disabled>선택 페이지 PDF로 합쳐서 다운로드 (0페이지)</button>
+  </div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const groupsEl = document.getElementById('groups');
+const summaryEl = document.getElementById('summary');
+const toolbarEl = document.getElementById('toolbar');
+const mergeBtn = document.getElementById('mergeBtn');
+const progressWrap = document.getElementById('progressWrap');
+const progressFill = document.getElementById('progressFill');
+const progressLabel = document.getElementById('progressLabel');
+
+let groups = []; // {file, bytes, pages: [{pageIndex, status, checkbox, img, row}], gcheck, gcount}
+let fileQueue = [];
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('drag');
+  handleFiles([...e.dataTransfer.files].filter(f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name)));
+});
+fileInput.addEventListener('change', e => { handleFiles([...e.target.files]); fileInput.value = ''; });
+
+function badgeLabel(status){
+  if(status==='cert') return '감지됨';
+  if(status==='other') return '-';
+  if(status==='unknown') return '확인필요';
+  return '검사중';
+}
+function badgeClass(status){
+  if(status==='cert') return 'badge cert';
+  if(status==='other') return 'badge other';
+  if(status==='unknown') return 'badge unknown';
+  return 'badge pending';
+}
+
+function handleFiles(files){
+  if(!files.length) return;
+  for(const file of files){
+    const head = document.createElement('div');
+    head.className = 'fghead';
+
+    const chev = document.createElement('div');
+    chev.className = 'chev';
+    chev.textContent = '▶';
+
+    const gcheck = document.createElement('input');
+    gcheck.type = 'checkbox';
+    gcheck.className = 'gcheck';
+    gcheck.disabled = true;
+    gcheck.addEventListener('click', e => e.stopPropagation());
+    gcheck.addEventListener('change', () => {
+      grp.pages.forEach(p => { p.checkbox.checked = gcheck.checked; refreshPageRow(p); });
+      updateMergeBtn();
+    });
+
+    const gname = document.createElement('div');
+    gname.className = 'gname';
+    gname.textContent = file.name;
+    gname.title = file.name;
+
+    const gcount = document.createElement('div');
+    gcount.className = 'gcount';
+    gcount.textContent = '검사 대기...';
+
+    head.append(chev, gcheck, gname, gcount);
+
+    const pagesWrap = document.createElement('div');
+    pagesWrap.className = 'pagesWrap';
+
+    head.addEventListener('click', () => {
+      head.classList.toggle('open');
+      pagesWrap.classList.toggle('open');
+    });
+
+    const fgroup = document.createElement('div');
+    fgroup.className = 'fgroup';
+    fgroup.append(head, pagesWrap);
+    groupsEl.appendChild(fgroup);
+
+    const grp = { file, bytes: null, pages: [], gcheck, gcount, pagesWrap, head };
+    groups.push(grp);
+    fileQueue.push(grp);
+  }
+  toolbarEl.style.display = 'flex';
+  summaryEl.style.display = 'flex';
+  processQueue();
+}
+
+function refreshPageRow(p){
+  p.row.classList.toggle('checked', p.checkbox.checked);
+}
+
+function refreshGroupCount(grp){
+  const total = grp.pages.length;
+  const detected = grp.pages.filter(p => p.status === 'cert').length;
+  const checked = grp.pages.filter(p => p.checkbox.checked).length;
+  grp.gcount.textContent = `${total}페이지 중 ${detected}개 감지 · ${checked}개 선택됨`;
+  const allChecked = checked === total && total > 0;
+  const noneChecked = checked === 0;
+  grp.gcheck.checked = allChecked;
+  grp.gcheck.indeterminate = !allChecked && !noneChecked;
+}
+
+function classifyPage(content){
+  const items = content.items.filter(it => it.str && it.str.trim().length);
+  if(!items.length) return 'unknown';
+
+  const sizes = items.map(it => {
+    const t = it.transform;
+    return Math.hypot(t[2], t[3]) || Math.abs(t[3]) || 1;
+  });
+  const sorted = [...sizes].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] || 1;
+
+  // "수입신고필증" as a large-font title (letter-spaced or not) — ignore small-font
+  // mentions of the same phrase inside other documents (e.g. "수입신고필증 참조").
+  let largeText = '';
+  for(let i = 0; i < items.length; i++){
+    if(sizes[i] >= median * 1.6) largeText += items[i].str;
+  }
+  const normLarge = largeText.replace(/\s+/g, '');
+  if(normLarge.includes('수입신고필증')) return 'cert';
+
+  const fullText = items.map(it => it.str).join('');
+  const normFull = fullText.replace(/\s+/g, '');
+  if(normFull.length < 20) return 'unknown';
+  return 'other';
+}
+
+let processing = false;
+async function processQueue(){
+  if(processing) return;
+  processing = true;
+  progressWrap.style.display = 'block';
+  let doneFiles = groups.length - fileQueue.length;
+  const totalFiles = groups.length;
+
+  while(fileQueue.length){
+    const grp = fileQueue.shift();
+    progressLabel.textContent = `검사 중... (${doneFiles+1}/${totalFiles}) ${grp.file.name}`;
+    try{
+      const buf = await grp.file.arrayBuffer();
+      grp.bytes = buf;
+      const pdf = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise;
+      const numPages = pdf.numPages;
+      for(let i = 1; i <= numPages; i++){
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const status = classifyPage(content);
+
+        const viewport = page.getViewport({ scale: 0.32 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        const row = document.createElement('div');
+        row.className = 'prow';
+
+        const img = document.createElement('img');
+        img.src = canvas.toDataURL('image/jpeg', 0.7);
+
+        const meta = document.createElement('div');
+        meta.className = 'pmeta';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = (status === 'cert');
+        const pnum = document.createElement('span');
+        pnum.className = 'pnum';
+        pnum.textContent = `p.${i}`;
+        const badge = document.createElement('span');
+        badge.className = badgeClass(status);
+        badge.textContent = badgeLabel(status);
+        meta.append(checkbox, pnum, badge);
+
+        row.append(img, meta);
+        grp.pagesWrap.appendChild(row);
+
+        const pentry = { pageIndex: i - 1, status, checkbox, row };
+        checkbox.addEventListener('change', () => { refreshPageRow(pentry); refreshGroupCount(grp); updateMergeBtn(); });
+        grp.pages.push(pentry);
+        refreshPageRow(pentry);
+      }
+      if(grp.pages.some(p => p.status === 'cert')){
+        grp.head.classList.add('open');
+        grp.pagesWrap.classList.add('open');
+      }
+    }catch(err){
+      grp.gcount.textContent = '읽기 실패: ' + err.message;
+    }
+    refreshGroupCount(grp);
+    doneFiles++;
+    progressFill.style.width = Math.round(doneFiles/totalFiles*100) + '%';
+  }
+  progressLabel.textContent = `검사 완료 (파일 ${totalFiles}개)`;
+  processing = false;
+  updateSummary();
+  updateMergeBtn();
+}
+
+function updateSummary(){
+  const allPages = groups.flatMap(g => g.pages);
+  const cert = allPages.filter(p => p.status === 'cert').length;
+  const other = allPages.filter(p => p.status === 'other').length;
+  const unknown = allPages.filter(p => p.status === 'unknown').length;
+  summaryEl.innerHTML = `파일 <b>${groups.length}</b>개 · 총 <b>${allPages.length}</b>페이지 · 감지 <b>${cert}</b>페이지 · 기타 <b>${other}</b>페이지 · 확인필요 <b>${unknown}</b>페이지`;
+}
+
+function updateMergeBtn(){
+  const checked = groups.flatMap(g => g.pages).filter(p => p.checkbox.checked).length;
+  mergeBtn.textContent = `선택 페이지 PDF로 합쳐서 다운로드 (${checked}페이지)`;
+  mergeBtn.disabled = checked === 0;
+}
+
+document.getElementById('checkCert').addEventListener('click', () => {
+  groups.forEach(grp => {
+    grp.pages.forEach(p => { p.checkbox.checked = (p.status === 'cert'); refreshPageRow(p); });
+    refreshGroupCount(grp);
+  });
+  updateMergeBtn();
+});
+document.getElementById('checkAll').addEventListener('click', () => {
+  groups.forEach(grp => {
+    grp.pages.forEach(p => { p.checkbox.checked = true; refreshPageRow(p); });
+    refreshGroupCount(grp);
+  });
+  updateMergeBtn();
+});
+document.getElementById('checkNone').addEventListener('click', () => {
+  groups.forEach(grp => {
+    grp.pages.forEach(p => { p.checkbox.checked = false; refreshPageRow(p); });
+    refreshGroupCount(grp);
+  });
+  updateMergeBtn();
+});
+
+mergeBtn.addEventListener('click', async () => {
+  const activeGroups = groups
+    .map(grp => ({ grp, pageIndices: grp.pages.filter(p => p.checkbox.checked).map(p => p.pageIndex) }))
+    .filter(g => g.pageIndices.length);
+  if(!activeGroups.length) return;
+  mergeBtn.disabled = true;
+  const origLabel = mergeBtn.textContent;
+  try{
+    const mergedPdf = await PDFLib.PDFDocument.create();
+    let i = 0;
+    for(const { grp, pageIndices } of activeGroups){
+      i++;
+      mergeBtn.textContent = `합치는 중... (${i}/${activeGroups.length})`;
+      const bytes = grp.bytes || await grp.file.arrayBuffer();
+      const donorPdf = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+      const pages = await mergedPdf.copyPages(donorPdf, pageIndices);
+      pages.forEach(p => mergedPdf.addPage(p));
+    }
+    const mergedBytes = await mergedPdf.save();
+    const blob = new Blob([mergedBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    a.href = url; a.download = `수입신고필증_추출_${ymd}.pdf`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }catch(err){
+    alert('PDF 합치기 실패: ' + err.message);
+  }
+  mergeBtn.textContent = origLabel;
+  mergeBtn.disabled = false;
+});
+</script>
+</body>
+</html>
